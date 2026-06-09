@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+logs/
+*.log
+.env
+config.local.json
+GUIA-ADMIN.md
