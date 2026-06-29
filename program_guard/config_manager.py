@@ -1,4 +1,4 @@
-"""Gestión de configuración local del cliente."""
+"""Configuración local — Program Guard."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-APP_NAME = "GameGuard"
+APP_NAME = "ProgramGuard"
 CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -26,12 +26,7 @@ DAYS = [
 ]
 
 DEFAULT_SCHEDULE = {
-    day_id: {
-        "enabled": False,
-        "all_day": False,
-        "start": "18:00",
-        "end": "22:00",
-    }
+    day_id: {"enabled": False, "all_day": False, "start": "18:00", "end": "22:00"}
     for day_id, _ in DAYS
 }
 
@@ -66,17 +61,18 @@ SCHEDULE_PRESETS: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 
-def _generate_device_id(length: int = 6) -> str:
-    alphabet = string.ascii_uppercase + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
+def _generate_id(length: int = 6) -> str:
+    return "".join(secrets.choice(string.digits) for _ in range(length))
 
 
 def _default_config() -> dict[str, Any]:
     return {
         "device_id": "",
         "device_name": "",
-        "pairing_token": "",
-        "listen_port": 8741,
+        "active_room_code": "",
+        "active_link_host": "",
+        "active_link_token": "",
+        "tagged_games": [],
         "enabled": True,
         "theme": "dark",
         "monitor_interval": 2.0,
@@ -91,7 +87,6 @@ class ConfigManager:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self._config = self._load()
         self.ensure_device_id()
-        self.ensure_pairing_token()
 
     def _load(self) -> dict[str, Any]:
         if not CONFIG_FILE.exists():
@@ -101,7 +96,6 @@ class ConfigManager:
                 data = json.load(handle)
         except (json.JSONDecodeError, OSError):
             return _default_config()
-
         merged = _default_config()
         merged.update(data)
         for day_id, _ in DAYS:
@@ -113,10 +107,6 @@ class ConfigManager:
             json.dump(self._config, handle, indent=2, ensure_ascii=False)
 
     @property
-    def config(self) -> dict[str, Any]:
-        return self._config
-
-    @property
     def device_id(self) -> str:
         return self._config.get("device_id", "")
 
@@ -125,12 +115,20 @@ class ConfigManager:
         return self._config.get("device_name") or f"PC-{self.device_id}"
 
     @property
-    def pairing_token(self) -> str:
-        return self._config.get("pairing_token", "")
+    def active_link_host(self) -> str:
+        return self._config.get("active_link_host", "")
 
     @property
-    def listen_port(self) -> int:
-        return int(self._config.get("listen_port", 8741))
+    def active_link_token(self) -> str:
+        return self._config.get("active_link_token", "")
+
+    @property
+    def active_room_code(self) -> str:
+        return self._config.get("active_room_code", "")
+
+    @property
+    def tagged_games(self) -> list[str]:
+        return list(self._config.get("tagged_games", []))
 
     @property
     def is_enabled(self) -> bool:
@@ -138,8 +136,8 @@ class ConfigManager:
 
     @property
     def theme(self) -> str:
-        value = self._config.get("theme", "dark")
-        return value if value in ("light", "dark") else "dark"
+        v = self._config.get("theme", "dark")
+        return v if v in ("light", "dark") else "dark"
 
     @property
     def monitor_interval(self) -> float:
@@ -151,18 +149,23 @@ class ConfigManager:
 
     def ensure_device_id(self) -> str:
         if not self._config.get("device_id"):
-            self._config["device_id"] = _generate_device_id()
+            self._config["device_id"] = _generate_id(8)
             self.save()
         return self._config["device_id"]
 
-    def ensure_pairing_token(self) -> str:
-        if not self._config.get("pairing_token"):
-            self._config["pairing_token"] = _generate_device_id(8)
-            self.save()
-        return self._config["pairing_token"]
+    def set_active_link(self, code: str, host: str = "", token: str = "") -> None:
+        self._config["active_room_code"] = code
+        self._config["active_link_host"] = host
+        self._config["active_link_token"] = token
+        self.save()
 
-    def set_device_name(self, name: str) -> None:
-        self._config["device_name"] = name.strip() or f"PC-{self.device_id}"
+    def set_active_room(self, code: str) -> None:
+        self.set_active_link(code)
+
+    def clear_active_room(self) -> None:
+        self._config["active_room_code"] = ""
+        self._config["active_link_host"] = ""
+        self._config["active_link_token"] = ""
         self.save()
 
     def set_enabled(self, enabled: bool) -> None:
@@ -171,20 +174,10 @@ class ConfigManager:
             self._config["pause_until"] = None
         self.save()
 
-    def set_theme(self, theme: str) -> None:
-        if theme in ("light", "dark"):
-            self._config["theme"] = theme
-            self.save()
-
-    def set_monitor_interval(self, seconds: float) -> None:
-        self._config["monitor_interval"] = max(1.0, min(10.0, seconds))
-        self.save()
-
     def pause_for_minutes(self, minutes: int) -> None:
         from datetime import timedelta
 
-        until = datetime.now() + timedelta(minutes=minutes)
-        self._config["pause_until"] = until.isoformat(timespec="seconds")
+        self._config["pause_until"] = (datetime.now() + timedelta(minutes=minutes)).isoformat(timespec="seconds")
         self._config["enabled"] = True
         self.save()
 
@@ -201,38 +194,21 @@ class ConfigManager:
         except ValueError:
             self.clear_pause()
             return False
-        current = now or datetime.now()
-        if current >= until:
+        if (now or datetime.now()) >= until:
             self.clear_pause()
             return False
         return True
 
     def pause_remaining_text(self, now: datetime | None = None) -> str:
-        raw = self._config.get("pause_until")
-        if not raw:
+        if not self.is_paused(now):
             return ""
+        raw = self._config.get("pause_until", "")
         try:
             until = datetime.fromisoformat(raw)
+            mins = int((until - (now or datetime.now())).total_seconds() // 60)
+            return f"Pausa — {mins} min" if mins < 60 else f"Pausa — {mins // 60}h {mins % 60}m"
         except ValueError:
-            return ""
-        current = now or datetime.now()
-        if current >= until:
-            return ""
-        delta = until - current
-        mins = int(delta.total_seconds() // 60)
-        if mins < 60:
-            return f"Pausa activa — {mins} min restantes"
-        hours = mins // 60
-        rem = mins % 60
-        return f"Pausa activa — {hours}h {rem}min restantes"
-
-    def apply_schedule_preset(self, preset_id: str) -> bool:
-        preset = SCHEDULE_PRESETS.get(preset_id)
-        if not preset:
-            return False
-        self._config["schedule"] = deepcopy(preset)
-        self.save()
-        return True
+            return "En pausa"
 
     def to_remote_config(self) -> dict[str, Any]:
         return {
@@ -241,10 +217,11 @@ class ConfigManager:
             "pause_until": self.pause_until,
             "blocked_apps": self.get_blocked_apps(),
             "schedule": deepcopy(self.get_schedule()),
+            "tagged_games": self.tagged_games,
         }
 
     def apply_remote_config(self, remote: dict[str, Any]) -> None:
-        for key in ("enabled", "monitor_interval", "pause_until", "blocked_apps", "schedule"):
+        for key in ("enabled", "monitor_interval", "pause_until", "blocked_apps", "schedule", "tagged_games"):
             if key in remote:
                 self._config[key] = remote[key]
         for day_id, _ in DAYS:
@@ -255,114 +232,35 @@ class ConfigManager:
         return list(self._config.get("blocked_apps", []))
 
     def add_blocked_app(self, name: str, exe_path: str = "", exe_name: str = "") -> bool:
-        if exe_path:
-            exe_name = Path(exe_path).name.lower()
-        else:
-            exe_name = exe_name.lower().strip()
+        exe_name = (Path(exe_path).name if exe_path else exe_name).lower().strip()
         if not exe_name:
             return False
-        for app in self._config["blocked_apps"]:
-            if app["exe_name"] == exe_name:
-                return False
-        self._config["blocked_apps"].append(
-            {
-                "name": name,
-                "exe_path": exe_path,
-                "exe_name": exe_name,
-            }
-        )
+        if any(a["exe_name"] == exe_name for a in self._config["blocked_apps"]):
+            return False
+        self._config["blocked_apps"].append({"name": name, "exe_path": exe_path, "exe_name": exe_name})
         self.save()
         return True
 
     def remove_blocked_app(self, exe_name: str) -> None:
-        self._config["blocked_apps"] = [
-            app for app in self._config["blocked_apps"] if app["exe_name"] != exe_name.lower()
-        ]
+        exe = exe_name.lower()
+        self._config["blocked_apps"] = [a for a in self._config["blocked_apps"] if a["exe_name"] != exe]
         self.save()
 
     def get_schedule(self) -> dict[str, dict[str, Any]]:
         return self._config["schedule"]
 
-    def update_schedule(self, schedule: dict[str, dict[str, Any]]) -> None:
-        self._config["schedule"] = schedule
-        self.save()
-
     def is_play_allowed_now(self, now: datetime | None = None) -> bool:
-        if not self.is_enabled:
+        if not self.is_enabled or self.is_paused(now):
             return True
-
         current = now or datetime.now()
-        if self.is_paused(current):
-            return True
-
-        day_id = [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday",
-            "saturday",
-            "sunday",
-        ][current.weekday()]
+        day_id = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"][current.weekday()]
         day_cfg = self._config["schedule"].get(day_id, {})
-
         if not day_cfg.get("enabled"):
             return False
         if day_cfg.get("all_day"):
             return True
-
-        start = day_cfg.get("start", "00:00")
-        end = day_cfg.get("end", "23:59")
-        current_time = current.strftime("%H:%M")
-        return start <= current_time <= end
-
-    def next_allowed_window_text(self, now: datetime | None = None) -> str:
-        current = now or datetime.now()
-        if self.is_play_allowed_now(current):
-            return "Ahora puedes jugar"
-
-        day_names = dict(DAYS)
-        for offset in range(8):
-            check = datetime(
-                current.year,
-                current.month,
-                current.day,
-                current.hour,
-                current.minute,
-            )
-            if offset:
-                from datetime import timedelta
-
-                check = check + timedelta(days=offset)
-
-            day_id = [
-                "monday",
-                "tuesday",
-                "wednesday",
-                "thursday",
-                "friday",
-                "saturday",
-                "sunday",
-            ][check.weekday()]
-            day_cfg = self._config["schedule"].get(day_id, {})
-            if not day_cfg.get("enabled"):
-                continue
-
-            if day_cfg.get("all_day"):
-                if offset == 0:
-                    return f"Hoy ({day_names[day_id]}) todo el día"
-                return f"{day_names[day_id]} todo el día"
-
-            start = day_cfg.get("start", "00:00")
-            end = day_cfg.get("end", "23:59")
-            check_time = check.strftime("%H:%M")
-
-            if offset == 0 and check_time < start:
-                return f"Hoy desde las {start} hasta las {end}"
-            if offset > 0:
-                return f"{day_names[day_id]} de {start} a {end}"
-
-        return "Sin horarios configurados"
+        t = current.strftime("%H:%M")
+        return day_cfg.get("start", "00:00") <= t <= day_cfg.get("end", "23:59")
 
     def status_snapshot(self) -> dict[str, Any]:
         return {
@@ -381,4 +279,4 @@ class ConfigManager:
             return self.pause_remaining_text() or "En pausa"
         if self.is_play_allowed_now():
             return "Horario permitido"
-        return "Bloqueando juegos"
+        return "Bloqueando"

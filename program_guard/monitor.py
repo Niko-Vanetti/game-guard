@@ -1,4 +1,4 @@
-"""Monitor de procesos que cierra juegos fuera de horario."""
+"""Monitor de procesos bloqueados."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Callable
 
 import psutil
 
-from game_guard.config_manager import ConfigManager
+from program_guard.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,6 @@ class ProcessMonitor:
         self._running = False
         self._recently_blocked: dict[str, float] = {}
 
-    def reload_interval(self) -> None:
-        self.interval = self.config.monitor_interval
-
     def start(self) -> None:
         self._running = True
         while self._running:
@@ -44,46 +41,30 @@ class ProcessMonitor:
 
     def kill_blocked_now(self) -> None:
         blocked_names = {app["exe_name"] for app in self.config.get_blocked_apps()}
-        if not blocked_names:
-            return
-        import psutil
-
         for proc in psutil.process_iter(["pid", "name"]):
             try:
                 name = (proc.info.get("name") or "").lower()
                 if name in blocked_names:
                     proc.terminate()
-                    logger.info("Cierre remoto: %s", name)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 
     def _scan_once(self) -> None:
-        if not self.config.is_enabled:
+        if not self.config.is_enabled or self.config.is_play_allowed_now():
             return
-        if self.config.is_play_allowed_now():
-            return
-
-        blocked_names = {
-            app["exe_name"] for app in self.config.get_blocked_apps()
-        }
+        blocked_names = {app["exe_name"] for app in self.config.get_blocked_apps()}
         if not blocked_names:
             return
-
         now = time.time()
-        for proc in psutil.process_iter(["pid", "name", "exe"]):
+        for proc in psutil.process_iter(["pid", "name"]):
             try:
                 name = (proc.info.get("name") or "").lower()
                 if name not in blocked_names:
                     continue
-
-                last = self._recently_blocked.get(name, 0)
-                if now - last < 5:
+                if now - self._recently_blocked.get(name, 0) < 5:
                     continue
-
                 proc.terminate()
                 self._recently_blocked[name] = now
-                logger.info("Proceso bloqueado: %s (pid %s)", name, proc.pid)
-
                 if self.on_block:
                     self.on_block(name)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):

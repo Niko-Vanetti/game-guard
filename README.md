@@ -1,62 +1,65 @@
-# Game Guard
+# Program Guard
 
-Bloqueo de videojuegos por horario en Windows. Fuera del horario permitido, los juegos seleccionados se cierran automáticamente.
+Control remoto de programas y juegos entre dos PCs con Windows. El **Cliente** corre en segundo plano; el **Admin** controla todo desde su panel.
+
+## Características
+
+- Enlace por **código de 6 dígitos** — solo dentro de la app
+- Cliente en **bandeja del sistema** (sin ventana visible tras conectar)
+- Admin ve programas en ejecución e historial de **7 días**
+- Detecta juegos vs programas normales
+- Bloqueo remoto de aplicaciones
+- Solo el Admin puede **desconectar**
+
+## Instalación
+
+```bat
+install.bat
+```
+
+Instala dependencias y opcionalmente inicia el Cliente con Windows.
+
+## Uso
+
+### Cliente (PC controlado)
+
+```bat
+iniciar.bat
+```
+
+1. Al abrir (solo la primera vez o sin conexión): genera un código o ingresa el del Admin
+2. Tras conectar → **pasa automáticamente a la bandeja** (icono violeta junto al reloj)
+3. Clic derecho en el icono → ver estado, código o reconectar
+
+No hace falta copiar enlaces ni configurar router. Ambos PCs necesitan **internet**.
+
+### Admin (PC controlador)
+
+```bat
+iniciar_admin.bat
+```
+
+1. Ingresa el código del Cliente → **Conectar**
+2. Panel con estado, programas, bloqueos y desconexión
+
+## Estructura
+
+| Archivo | Descripción |
+|---------|-------------|
+| `iniciar.bat` | Cliente (bandeja) |
+| `iniciar_admin.bat` | Panel Admin |
+| `install.bat` | Instalación |
+| `desinstalar.bat` | Quitar del inicio de Windows |
+
+## Configuración local
+
+`%APPDATA%\ProgramGuard\`
+
+- `config.json` — ajustes del Cliente
+- `usage.db` — historial de programas (7 días)
 
 ## Requisitos
 
 - Windows 10/11
-- [Python 3.10 o superior](https://www.python.org/downloads/) — al instalar, marca **Add python.exe to PATH**
-
-## Instalación
-
-1. Descarga este repositorio (Code → Download ZIP) o clónalo.
-2. Abre la carpeta del proyecto.
-3. Doble clic en **`install.bat`**.
-4. Doble clic en **`iniciar.bat`**.
-
-La primera vez que se abre, **el administrador** debe crear una contraseña. Esa persona configura juegos y horarios.
-
-## Uso
-
-- **Icono en la bandeja** (abajo a la derecha): verde = bloqueo activo, rojo = desactivado.
-- **Clic derecho** en el icono → Panel de administrador (requiere contraseña del admin).
-- Para **agregar un juego**: Panel → Juegos bloqueados → Agregar juego (.exe).
-- Para **quitar un juego o cambiar horarios**: hace falta la contraseña del administrador.
-
-## Horarios (ejemplo)
-
-| Día | Configuración |
-|-----|----------------|
-| Viernes | Permitir jugar ✓ + Todo el día ✓ |
-| Sábado | Permitir jugar ✓, Desde 14:00 Hasta 22:00 |
-| Otros días | Sin marcar = no se puede jugar |
-
-## Desactivar temporalmente
-
-El administrador puede desactivar el bloqueo en cualquier momento desde el panel (pestaña Estado) o desde el menú de la bandeja, con contraseña.
-
-## Desinstalar
-
-1. Ejecuta **`desinstalar.bat`**.
-2. Opcional: borra `%APPDATA%\GameGuard\`.
-
-## Archivos del proyecto
-
-```
-game-guard/
-├── install.bat          # Instalar (una vez)
-├── iniciar.bat            # Iniciar la app
-├── desinstalar.bat        # Quitar del inicio de Windows
-├── main.py                # Entrada principal
-├── requirements.txt       # Dependencias Python
-├── game_guard/            # Código de la aplicación
-└── README.md              # Este archivo
-```
-
-La configuración (juegos, horarios, contraseña) se guarda en:
-
-```
-%APPDATA%\GameGuard\config.json
-```
-
-No subas ese archivo a internet: contiene la configuración local de esa PC.
+- Python 3.10+
+- Internet en ambos dispositivos
